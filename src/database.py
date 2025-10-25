@@ -1,10 +1,13 @@
 import sqlite3
 import random
 import string
+import logging
 from datetime import datetime
 from pathlib import Path
+from contextlib import contextmanager
 
 DATABASE_PATH = "marketplace.db"
+logger = logging.getLogger(__name__)
 
 def generate_id(prefix):
     """Génère un ID aléatoire avec un préfixe (ex: C-7K9P, WRK-001)"""
@@ -18,88 +21,109 @@ def generate_id(prefix):
         return f"TSK-{random.randint(1000, 9999)}"
     return f"{prefix}-{random.randint(1000, 9999)}"
 
+@contextmanager
+def get_db_connection():
+    """Context manager pour les connexions à la base de données avec gestion d'erreur"""
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_PATH, timeout=10.0)
+        conn.row_factory = sqlite3.Row
+        yield conn
+    except sqlite3.Error as e:
+        logger.error(f"Database error: {e}")
+        if conn:
+            conn.rollback()
+        raise
+    finally:
+        if conn:
+            conn.close()
+
 def init_database():
     """Initialise la base de données avec toutes les tables nécessaires"""
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    # Table Clients (entreprises qui commandent)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS clients (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            client_id TEXT UNIQUE NOT NULL,
-            telegram_id INTEGER UNIQUE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Table Workers (microworkers)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS workers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            worker_id TEXT UNIQUE NOT NULL,
-            telegram_id INTEGER UNIQUE NOT NULL,
-            level TEXT DEFAULT 'Bronze',
-            rating REAL DEFAULT 0.0,
-            balance REAL DEFAULT 0.0,
-            status TEXT DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Table Commandes
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS orders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id TEXT UNIQUE NOT NULL,
-            client_id TEXT NOT NULL,
-            platform TEXT NOT NULL,
-            quantity INTEGER NOT NULL,
-            target_link TEXT,
-            brief TEXT,
-            status TEXT DEFAULT 'pending',
-            price REAL DEFAULT 0.0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (client_id) REFERENCES clients(client_id)
-        )
-    ''')
-    
-    # Table Avis (contenu des avis à distribuer)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS reviews (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id TEXT NOT NULL,
-            content TEXT NOT NULL,
-            rating REAL DEFAULT 5.0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (order_id) REFERENCES orders(order_id)
-        )
-    ''')
-    
-    # Table Tâches (affectées aux workers)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            task_id TEXT UNIQUE NOT NULL,
-            order_id TEXT NOT NULL,
-            worker_id TEXT,
-            review_content TEXT NOT NULL,
-            rating REAL DEFAULT 5.0,
-            target_link TEXT NOT NULL,
-            reward REAL DEFAULT 5.0,
-            status TEXT DEFAULT 'available',
-            proof_screenshot TEXT,
-            proof_link TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            accepted_at TIMESTAMP,
-            completed_at TIMESTAMP,
-            FOREIGN KEY (order_id) REFERENCES orders(order_id),
-            FOREIGN KEY (worker_id) REFERENCES workers(worker_id)
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+
+            # Table Clients (entreprises qui commandent)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS clients (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id TEXT UNIQUE NOT NULL,
+                    telegram_id INTEGER UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # Table Workers (microworkers)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS workers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    worker_id TEXT UNIQUE NOT NULL,
+                    telegram_id INTEGER UNIQUE NOT NULL,
+                    level TEXT DEFAULT 'Bronze',
+                    rating REAL DEFAULT 0.0,
+                    balance REAL DEFAULT 0.0,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # Table Commandes
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id TEXT UNIQUE NOT NULL,
+                    client_id TEXT NOT NULL,
+                    platform TEXT NOT NULL,
+                    quantity INTEGER NOT NULL,
+                    target_link TEXT,
+                    brief TEXT,
+                    status TEXT DEFAULT 'pending',
+                    price REAL DEFAULT 0.0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (client_id) REFERENCES clients(client_id)
+                )
+            ''')
+
+            # Table Avis (contenu des avis à distribuer)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    rating REAL DEFAULT 5.0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (order_id) REFERENCES orders(order_id)
+                )
+            ''')
+
+            # Table Tâches (affectées aux workers)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT UNIQUE NOT NULL,
+                    order_id TEXT NOT NULL,
+                    worker_id TEXT,
+                    review_content TEXT NOT NULL,
+                    rating REAL DEFAULT 5.0,
+                    target_link TEXT NOT NULL,
+                    reward REAL DEFAULT 5.0,
+                    status TEXT DEFAULT 'available',
+                    proof_screenshot TEXT,
+                    proof_link TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    accepted_at TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    FOREIGN KEY (order_id) REFERENCES orders(order_id),
+                    FOREIGN KEY (worker_id) REFERENCES workers(worker_id)
+                )
+            ''')
+
+            conn.commit()
+            logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        raise
 
 def get_db():
     """Retourne une connexion à la base de données"""

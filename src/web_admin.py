@@ -1,6 +1,9 @@
 import os
+import sqlite3
+from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.utils import secure_filename
+from werkzeug.security import check_password_hash, generate_password_hash
 from functools import wraps
 from src.database import (
     get_all_orders, get_order_by_id, get_order_reviews, add_review_to_order,
@@ -214,8 +217,43 @@ def view_screenshot(task_id):
     if not task or not task['proof_screenshot']:
         flash('Screenshot non trouvé', 'error')
         return redirect(url_for('dashboard'))
-    
+
     return render_template('screenshot.html', task=task)
+
+@app.route('/health')
+def health_check():
+    """Endpoint de santé pour monitoring"""
+    try:
+        # Vérifier la connexion à la base de données
+        from src.database import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT 1')
+            cursor.fetchone()
+
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': datetime.utcnow().isoformat(),
+            'database': 'connected',
+            'service': 'marketplace'
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'timestamp': datetime.utcnow().isoformat(),
+            'error': str(e)
+        }), 500
+
+@app.route('/api/stats')
+@login_required
+def api_stats():
+    """API endpoint pour obtenir les statistiques"""
+    try:
+        stats = get_stats()
+        stats['timestamp'] = datetime.utcnow().isoformat()
+        return jsonify(stats), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 def create_app():
     """Créer et configurer l'application Flask"""

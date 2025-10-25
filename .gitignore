@@ -41,6 +41,9 @@ uploads/
 *.png
 *.jpeg
 
+# Backups
+backups/
+
 # IDE
 .vscode/
 .idea/
